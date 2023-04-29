@@ -1,5 +1,4 @@
 import pygame
-import typing
 
 equation = ""
 
@@ -78,6 +77,9 @@ class SignError():
 
 
 def check_brackets(equation: str) -> bool:
+    """ 
+        Check that all brackets from correct pairs using stack
+    """
     stack = []
     count = 0
     for symbol in equation:
@@ -106,7 +108,7 @@ def handle_invalid_equation(equation: str, index: int) -> None:
 
 def compress_multiplying(equation: list) -> list:
     """
-        Compress all multiplications to the arrays
+        Compress multiplications to the arrays
     """
     compressed = []
     i = 0
@@ -199,6 +201,9 @@ def parse_to_array(equation: str, begin, depth: int) -> list:
 
 
 def parse_to_tree(equation: list) -> TreeNode:
+    """
+        Form balanced binary tree from array
+    """
     n = len(equation)
 
     if n == 0:
@@ -213,9 +218,7 @@ def parse_to_tree(equation: list) -> TreeNode:
     elif n == 1 and isinstance(equation[0], str):
         return TreeNode(equation[0])
 
-    left = 0
-    right = n-1
-    mid = left + (right - left)//2
+    mid = (n-1)//2
 
     if '+' in equation:
         if equation[mid] == '+':
@@ -231,58 +234,60 @@ def parse_to_tree(equation: list) -> TreeNode:
 
 
 def get_left_size(node: TreeNode, depth=1) -> int:
+    """
+        To get max depth to left from the current element
+    """
     if node == None:
         return 0
     return depth + get_left_size(node.left, depth)
 
 
 def get_right_size(node: TreeNode, depth=1) -> int:
+    """
+        To get max depth to right from the current element
+    """
     if node == None:
         return 0
     return depth + get_right_size(node.right, depth)
 
 
 def wiring(left_x, left_y, current_x, current_y, node):
+    """
+        Adding wires between elements
+        All wires consists of three parts and two kinks
+    """
     elem_w = elem_width
 
     if node != None and isinstance(node.data, str) and node.data != '+' and node.data != '-':
         elem_w = 20
 
-    if current_y > left_y:
-        wires.append([[left_x+elem_w + (current_x - (left_x + elem_w))//2, current_y+padding,
-                       left_x + elem_w + (current_x - (left_x + elem_w)) // 2, current_y+padding],
-                      [current_x, current_y + padding,
-                          current_x, current_y + padding]
-                      ])
-        wires.append([[left_x+elem_w + (current_x - (left_x + elem_w))//2, left_y + elem_height//2,
-                       left_x+elem_w + (current_x - (left_x + elem_w))//2, left_y + elem_height//2],
-                      [left_x+elem_w + (current_x - (left_x + elem_w))//2, current_y + padding,
-                       left_x+elem_w + (current_x - (left_x + elem_w))//2, current_y + padding]
-                      ])
-        wires.append([[left_x + elem_w, left_y + elem_height//2,
-                       left_x + elem_w, left_y + elem_height//2],
-                      [left_x+elem_w + (current_x - (left_x + elem_w))//2, left_y + elem_height//2,
-                       left_x+elem_w + (current_x - (left_x + elem_w))//2, left_y + elem_height//2]
-                      ])
-    else:
-        wires.append([[left_x+elem_w + (current_x - (left_x + elem_w))//2, current_y + elem_height - padding,
-                       left_x + elem_w + (current_x - (left_x + elem_w)) // 2, current_y + elem_height - padding],
-                      [current_x, current_y + elem_height - padding,
-                       current_x, current_y + elem_height - padding]
-                      ])
-        wires.append([[left_x+elem_w + (current_x - (left_x + elem_w))//2, left_y + elem_height//2,
-                       left_x+elem_w + (current_x - (left_x + elem_w))//2, left_y + elem_height//2],
-                      [left_x+elem_w + (current_x - (left_x + elem_w))//2, current_y + elem_height - padding,
-                       left_x+elem_w + (current_x - (left_x + elem_w))//2, current_y + elem_height - padding]
-                      ])
-        wires.append([[left_x + elem_w, left_y + elem_height//2,
-                       left_x + elem_w, left_y + elem_height//2],
-                      [left_x+elem_w + (current_x - (left_x + elem_w))//2, left_y + elem_height//2,
-                       left_x+elem_w + (current_x - (left_x + elem_w))//2, left_y + elem_height//2]
-                      ])
+    y_type1 = current_y + padding
+    y_type2 = left_y + elem_height//2
+
+    if current_y <= left_y:
+        y_type1 = current_y + elem_height - padding
+
+    wires.append([[left_x+elem_w + (current_x - (left_x + elem_w))//2, y_type1,
+                   left_x + elem_w + (current_x - (left_x + elem_w)) // 2, y_type1],
+                  [current_x, y_type1,
+                   current_x, y_type1]
+                  ])
+    wires.append([[left_x+elem_w + (current_x - (left_x + elem_w))//2, y_type2,
+                   left_x+elem_w + (current_x - (left_x + elem_w))//2, y_type2],
+                  [left_x+elem_w + (current_x - (left_x + elem_w))//2, y_type1,
+                   left_x+elem_w + (current_x - (left_x + elem_w))//2, y_type1]
+                  ])
+    wires.append([[left_x + elem_w, y_type2,
+                   left_x + elem_w, y_type2],
+                  [left_x+elem_w + (current_x - (left_x + elem_w))//2, y_type2,
+                   left_x+elem_w + (current_x - (left_x + elem_w))//2, y_type2]
+                  ])
 
 
 def proceed_elems(head: TreeNode, current_x: int, current_y: int, depth) -> None:
+    """
+        This function forms elems array and nodes of balanced binary tree
+    """
     global elems
 
     if (head == None or head.data == None):
@@ -317,25 +322,16 @@ def proceed_elems(head: TreeNode, current_x: int, current_y: int, depth) -> None
     wiring(right_x, right_y, current_x, current_y, head.right)
 
 
-def print_inorder(node: TreeNode) -> None:
-    if node.left:
-        print_inorder(node.left)
-
-    print(node.data)
-
-    if node.right:
-        print_inorder(node.right)
-
-
 def parse_equation(equation) -> None:
+    """
+        Parsing string equation to array and then to balanced binary tree
+    """
     if not check_brackets(equation):
         print('Brackets error')
         quit(1)
 
     array, to_continue = parse_to_array(equation, 0, 0)
-    print(array)
     head = parse_to_tree(array)
-    print_inorder(head)
 
     proceed_elems(head, screen_width*0.5, screen_height//2 - elem_height//2, 0)
 
