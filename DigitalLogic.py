@@ -1,10 +1,10 @@
 import pygame
+import typing
 
-equation = input("Input equation: ")
-print(equation)
+equation = ""
 
-screen_width = 800
-screen_height = 800
+screen_width = 2000
+screen_height = 1000
 
 WHITE = (255, 255, 255)
 BLACK = (0, 0, 0)
@@ -14,8 +14,7 @@ elem_width = 80
 padding = 10
 elem_height = 40
 
-pygame.init()
-screen = pygame.display.set_mode((screen_width, screen_height))
+screen = None
 
 viewport_x = 0
 viewport_y = 0
@@ -25,16 +24,25 @@ left_mouse_pressed = False
 height_padding = 50
 left_elems_y = screen_height//2 - elem_height//2 + padding
 
-rects_used = []
+elems = []
 wires = []
-logic_inputs = {}
-objs = []
+
+x_offset = 60 + elem_width
+y_offset = 20
 
 
 class element_types(enumerate):
     LOGICAL_AND = 1
     LOGICAL_OR = 2
     LOGICAL_NOT = 3
+
+
+class SYMBOL_TYPES(enumerate):
+    ARITHMETIC = 0
+    NOT = 1
+    VARIABLE = 2
+    OPEN_BRACKET = 3
+    CLOSE_BRACKET = 4
 
 
 class logical_element():
@@ -54,7 +62,22 @@ class logical_element():
             pygame.image.load(path_to_file), (elem_width, elem_height))
 
 
-def check_brackets(equation):
+class TreeNode(object):
+    def __init__(self, data, left=None, right=None) -> None:
+        self.data = data
+        self.left = left
+        self.right = right
+
+
+class SignError():
+    def __init__(self, message: str) -> None:
+        self.message = message
+
+    def what(self):
+        return self.message
+
+
+def check_brackets(equation: str) -> bool:
     stack = []
     count = 0
     for symbol in equation:
@@ -64,7 +87,7 @@ def check_brackets(equation):
         if symbol in [']', ')', '}']:
             if count <= 0:
                 return False
-            elif (symbol == ']' and stack[-1] != '[') or (symbol == '}' and stack[-1] != '{') or (symbol == ')' and symbol[-1] != '('):
+            elif (symbol == ']' and stack[-1] != '[') or (symbol == '}' and stack[-1] != '{') or (symbol == ')' and stack[-1] != '('):
                 return False
             else:
                 stack.pop()
@@ -72,236 +95,264 @@ def check_brackets(equation):
     return count == 0
 
 
-def wire_collide_vertical(line):
-    for wire in wires:
-        if wire[0][0] == line[0][0] and wire[1][0] == line[1][0]:
-            if (wire[0][1] <= line[0][1] and wire[1][1] >= line[0][1]) or (line[0][1] <= wire[0][1] and line[1][1] >= wire[0][1]):
-                return True
-    return False
+def handle_invalid_equation(equation: str, index: int) -> None:
+    print("Error: Invalid equation:")
+    print(equation)
+    for _ in range(index):
+        print(" ", end="")
+    print("^")
+    raise SignError()
 
 
-def wire_collide_horizontal(line):
-    pass
+def compress_multiplying(equation: list) -> list:
+    """
+        Compress all multiplications to the arrays
+    """
+    compressed = []
+    i = 0
+    n = len(equation)
+    prev_multiplying = False
+    while i < n:
+        elem = equation[i]
+        if elem == '*':
+            compressed[-1] = [compressed[-1], '*']
+            prev_multiplying = True
+        elif elem == '+':
+            prev_multiplying = False
+            compressed.append('+')
+        elif isinstance(elem, list):
+            if prev_multiplying:
+                unit = compressed[-1]
+                unit.append(elem)
+                compressed[-1] = unit
+            else:
+                compressed.append(elem)
+        elif isinstance(elem, str):
+            if prev_multiplying:
+                unit = compressed[-1]
+                unit.append(elem)
+                compressed[-1] = unit
+            else:
+                compressed.append(elem)
+        i += 1
+
+    return compressed
 
 
-def wire_constructor(x1, y1, x2, y2, signal):
-    dx = x2-x1
-    dy = y2-y1
+def parse_to_array(equation: str, begin, depth: int) -> list:
+    """
+        Divide string equation to the array with + as delimiter
+    """
 
-    collide_h = False
-    collide_v = False
+    array = []
+    n = len(equation)
+    LAST_SYMBOL = None
 
-    kink_dots = [[x1 + abs(x2-x1)*0.1, y1], [x2, y1 + abs(y2-y1)*0.9]]
-    wire_new_y, wire_new_x = y1, x2
+    if (depth != 0):
+        LAST_SYMBOL = SYMBOL_TYPES.OPEN_BRACKET
 
-    if dx != 0:
-        wire_rect = pygame.rect.Rect(x1, y1, abs(x2-x1), 5)
-        for ur in rects_used:
-            while wire_rect.colliderect(ur):
-                collide_h = True
-                wire_rect.y -= 2
+    last_variable = ""
+    proceed_varible = False
 
-        while True:
-            wires_collide = False
-            for wire in wires:
-                if wire[0][1] == wire_rect.y:
-                    wire_rect.y -= 2
-                    wires_collide = True
+    to_continue = 0
+    i = begin
+    while (i < n):
+        symbol = equation[i]
 
-            if not wires_collide:
+        if not symbol.isalnum() and proceed_varible:
+            LAST_SYMBOL = SYMBOL_TYPES.VARIABLE
+            proceed_varible = False
+            array.append(last_variable)
+
+        if symbol in ['(', '{', '[']:
+            if i == n-1:
+                handle_invalid_equation(equation, i)
+            parsed, skip = parse_to_array(equation, i+1, depth+1)
+            LAST_SYMBOL = SYMBOL_TYPES.CLOSE_BRACKET
+            array.append(parsed)
+            i = skip+1
+            continue
+        elif symbol in [')', '}', ']']:
+            if depth != 0:
+                to_continue = i
                 break
+            else:
+                LAST_SYMBOL = SYMBOL_TYPES.CLOSE_BRACKET
+        elif symbol in ["+", "-", "*"]:
+            if LAST_SYMBOL in [None, SYMBOL_TYPES.ARITHMETIC, SYMBOL_TYPES.NOT, SYMBOL_TYPES.OPEN_BRACKET] or i == n-1:
+                handle_invalid_equation(equation, i)
+            else:
+                LAST_SYMBOL = SYMBOL_TYPES.ARITHMETIC
+                array.append(symbol)
+        elif symbol.isalnum() and proceed_varible == False:
+            last_variable = symbol
+            proceed_varible = True
+        elif symbol.isalnum() and proceed_varible:
+            last_variable += symbol
 
-        wire_new_y = wire_rect.y
+        i += 1
 
-    if dy != 0:
-        wire_rect = pygame.rect.Rect(x2, y1, 3, abs(y2-y1))
-        for ur in rects_used:
-            while wire_rect.colliderect(ur):
-                collide_v = True
-                wire_rect.x -= 1
+    if proceed_varible:
+        array.append(last_variable)
 
-        while True:
-            wires_collide = False
-            for wire in wires:
-                if wire[0][0] == wire_rect.x:
-                    wire_rect.x -= -2
-                    wires_collide = True
+    return compress_multiplying(array), to_continue
 
-            if not wires_collide:
-                break
 
-        wire_new_x = wire_rect.x
+def parse_to_tree(equation: list) -> TreeNode:
+    n = len(equation)
 
-    if collide_h and collide_v:
-        wires.append([[kink_dots[0][0], wire_new_y], [
-            wire_new_x, wire_new_y], signal])
-        wires.append([[x1, y1], [kink_dots[0][0], y1], signal])
-        wires.append([[wire_new_x, wire_new_y], [
-            wire_new_x, kink_dots[1][1]], signal])
-        wires.append([[kink_dots[1][0], kink_dots[1][1]],
-                      [kink_dots[1][0], y2], signal])
-        wire_constructor(kink_dots[0][0], wire_new_y,
-                         kink_dots[0][0], y1, signal)
-        wire_constructor(
-            wire_new_x, kink_dots[1][1], x2, kink_dots[1][1], signal)
+    if n == 0:
+        return None
 
-    elif collide_h:
-        wires.append([[kink_dots[0][0], wire_new_y], [
-            wire_new_x, wire_new_y], signal])
-        wires.append([[x1, y1], [kink_dots[0][0], y1], signal])
-        wire_constructor(kink_dots[0][0], wire_new_y,
-                         kink_dots[0][0], y1, signal)
-        wire_constructor(x2, wire_new_y, x2, y2, signal)
-    elif collide_v:
-        wires.append([[wire_new_x, wire_new_y], [
-            wire_new_x, kink_dots[1][1]], signal])
-        wires.append([[kink_dots[1][0], kink_dots[1][1]],
-                      [kink_dots[1][0], y2], signal])
-        wire_constructor(
-            wire_new_x, kink_dots[1][1], x2, kink_dots[1][1], signal)
+    if n % 2 == 0:
+        print(equation)
+        raise RuntimeError("Error: array is invalid for tree parsing")
+
+    if n == 1 and isinstance(equation[0], list):
+        return parse_to_tree(equation[0])
+    elif n == 1 and isinstance(equation[0], str):
+        return TreeNode(equation[0])
+
+    left = 0
+    right = n-1
+    mid = left + (right - left)//2
+
+    if '+' in equation:
+        if equation[mid] == '+':
+            return TreeNode('+', parse_to_tree(equation[:mid]), parse_to_tree(equation[mid+1:]))
+        elif equation[mid-1] == '+':
+            return TreeNode('+', parse_to_tree(equation[:mid-1]), parse_to_tree(equation[mid:]))
+    if equation[mid] == '*':
+        return TreeNode('*', parse_to_tree(equation[:mid]), parse_to_tree(equation[mid+1:]))
+    elif equation[mid-1] == '*':
+        return TreeNode('*', parse_to_tree(equation[:mid-2]), parse_to_tree(equation[mid:]))
+
+    return None
+
+
+def get_left_size(node: TreeNode, depth=1) -> int:
+    if node == None:
+        return 0
+    return depth + get_left_size(node.left, depth)
+
+
+def get_right_size(node: TreeNode, depth=1) -> int:
+    if node == None:
+        return 0
+    return depth + get_right_size(node.right, depth)
+
+
+def wiring(left_x, left_y, current_x, current_y, node):
+    elem_w = elem_width
+
+    if node != None and isinstance(node.data, str) and node.data != '+' and node.data != '-':
+        elem_w = 20
+
+    if current_y > left_y:
+        wires.append([[left_x+elem_w + (current_x - (left_x + elem_w))//2, current_y+padding,
+                       left_x + elem_w + (current_x - (left_x + elem_w)) // 2, current_y+padding],
+                      [current_x, current_y + padding,
+                          current_x, current_y + padding]
+                      ])
+        wires.append([[left_x+elem_w + (current_x - (left_x + elem_w))//2, left_y + elem_height//2,
+                       left_x+elem_w + (current_x - (left_x + elem_w))//2, left_y + elem_height//2],
+                      [left_x+elem_w + (current_x - (left_x + elem_w))//2, current_y + padding,
+                       left_x+elem_w + (current_x - (left_x + elem_w))//2, current_y + padding]
+                      ])
+        wires.append([[left_x + elem_w, left_y + elem_height//2,
+                       left_x + elem_w, left_y + elem_height//2],
+                      [left_x+elem_w + (current_x - (left_x + elem_w))//2, left_y + elem_height//2,
+                       left_x+elem_w + (current_x - (left_x + elem_w))//2, left_y + elem_height//2]
+                      ])
     else:
-        wires.append([[x1, y1], [x2, y1], signal])
-        wires.append([[x2, y1], [x2, y2], signal])
+        wires.append([[left_x+elem_w + (current_x - (left_x + elem_w))//2, current_y + elem_height - padding,
+                       left_x + elem_w + (current_x - (left_x + elem_w)) // 2, current_y + elem_height - padding],
+                      [current_x, current_y + elem_height - padding,
+                       current_x, current_y + elem_height - padding]
+                      ])
+        wires.append([[left_x+elem_w + (current_x - (left_x + elem_w))//2, left_y + elem_height//2,
+                       left_x+elem_w + (current_x - (left_x + elem_w))//2, left_y + elem_height//2],
+                      [left_x+elem_w + (current_x - (left_x + elem_w))//2, current_y + elem_height - padding,
+                       left_x+elem_w + (current_x - (left_x + elem_w))//2, current_y + elem_height - padding]
+                      ])
+        wires.append([[left_x + elem_w, left_y + elem_height//2,
+                       left_x + elem_w, left_y + elem_height//2],
+                      [left_x+elem_w + (current_x - (left_x + elem_w))//2, left_y + elem_height//2,
+                       left_x+elem_w + (current_x - (left_x + elem_w))//2, left_y + elem_height//2]
+                      ])
 
 
-def add_elem_to_arr(elem):
-    elem_type, left, right, x, y = elem
-    objs.append(logical_element(x, y, elem_type))
+def proceed_elems(head: TreeNode, current_x: int, current_y: int, depth) -> None:
+    global elems
 
-    if type(left) == list:
-        add_elem_to_arr(left)
+    if (head == None or head.data == None):
+        return
 
-    if type(right) == list:
-        add_elem_to_arr(right)
-
-
-def get_string(object):
-    if type(object) == str:
-        return object
-    sign = object[0]
-    left = object[1]
-    right = object[2]
-    if type(left) == list:
-        left = f"({get_string(left)})"
-    if type(right) == list:
-        right = f"({get_string(right)})"
-    if sign == element_types.LOGICAL_OR:
-        return f"{left}+{right}"
-    elif sign == element_types.LOGICAL_AND:
-        return f"{left}*{right}"
-    return ""
-
-
-def process_elems(tree):
-    global left_elems_y, height_padding
-    elem_type, left, right, x, y = tree
-    lt, rt = type(left), type(right)
-
-    if lt == list:
-        process_elems(left)
-    if rt == list:
-        process_elems(right)
-
-    equal = f"{get_string(left)}{'+' if elem_type == element_types.LOGICAL_OR else '*'}{get_string(right)}"
-
-    if lt == list and rt == list:
-        x = max(left[3], right[3]) + 200
-        y = (left[4] + right[4])//2 - elem_height//2
-        wire_constructor(left[3] + elem_width,
-                         left[4] + elem_height//2, x, y+padding, equal)
-        wire_constructor(right[3] + elem_width,
-                         right[4] + elem_height//2, x, y+elem_height-padding, equal)
-
-    elif lt == list:
-        x = left[3] + 200
-        y = left[4] + padding
-        wire_constructor(left[3] + elem_width,
-                         left[4] + elem_height//2, x, y+padding, equal)
-        wire_constructor(logic_inputs[right][0],
-                         logic_inputs[right][1] + font_size//2, x, y+elem_height-padding, equal)
-
-    elif rt == list:
-        x = right[3] + 200
-        y = right[4] - padding
-        wire_constructor(
-            logic_inputs[left][0], logic_inputs[left][1] + font_size//2, x, y+padding, equal)
-        wire_constructor(right[3] + elem_width,
-                         right[4] + elem_height//2, x, y+elem_height-padding, equal)
-
+    if head.data == '+':
+        elems.append(logical_element(
+            current_x, current_y, element_types.LOGICAL_OR))
+    elif head.data == '*':
+        elems.append(logical_element(
+            current_x, current_y, element_types.LOGICAL_AND))
     else:
-        x = 100
-        y = left_elems_y
-        left_elems_y += height_padding
-        wire_constructor(
-            logic_inputs[left][0], logic_inputs[left][1] + font_size//3, x, y+padding, equal)
-        wire_constructor(
-            logic_inputs[right][0], logic_inputs[right][1] + font_size//3, x, y+elem_height-padding, equal)
+        elems.append([head.data, current_x, current_y, current_x, current_y])
+        return
 
-    tree[3], tree[4] = x, y
-    rects_used.append(pygame.rect.Rect(x, y, elem_width, elem_height))
-    objs.append(logical_element(x, y, elem_type))
+    right_size = get_right_size(head.left)
+    left_size = get_left_size(head.right)
+
+    left_x = current_x - x_offset
+    right_x = current_x - x_offset
+    left_y = current_y - right_size*(y_offset + elem_height)
+    right_y = current_y + left_size*(y_offset + elem_height)
+
+    proceed_elems(head.left, left_x,
+                  left_y, depth+1)
+
+    wiring(left_x, left_y, current_x, current_y, head.left)
+
+    proceed_elems(head.right, right_x,
+                  right_y, depth+1)
+
+    wiring(right_x, right_y, current_x, current_y, head.right)
 
 
-def parse_equation(equation):
+def print_inorder(node: TreeNode) -> None:
+    if node.left:
+        print_inorder(node.left)
+
+    print(node.data)
+
+    if node.right:
+        print_inorder(node.right)
+
+
+def parse_equation(equation) -> None:
     if not check_brackets(equation):
         print('Brackets error')
         quit(1)
 
-    stack = []
-    inputs = {}
-    input_x = 10
-    input_y = 0
-    num_of_inputs = 0
-    inputs_y_diff = 24
+    array, to_continue = parse_to_array(equation, 0, 0)
+    print(array)
+    head = parse_to_tree(array)
+    print_inorder(head)
 
-    n = len(equation)
-    i = 0
-    while i < n:
-        s = equation[i]
-        if s not in ['+', '*']:
-            if s not in inputs.keys():
-                logic_inputs[s] = [input_x, input_y]
-                input_y += inputs_y_diff
-                num_of_inputs += 1
-            stack.append(s)
-        elif s == "*":
-            if len(stack) == 0 or i+1 >= n:
-                print("Equation error!")
-                quit(1)
-            if equation[i+1] not in logic_inputs.keys():
-                logic_inputs[equation[i+1]] = [input_x,
-                                               input_y]
-                input_y += inputs_y_diff
-            stack.append([element_types.LOGICAL_AND,
-                         stack.pop(), equation[i+1], 0, 0])
-            i += 1
-        elif s == "+":
-            stack.append("+")
-        i += 1
-    print(stack)
-
-    inputs_offset = (screen_height - (num_of_inputs - 1)*inputs_y_diff)/2
-
-    for key in logic_inputs.keys():
-        logic_inputs[key][1] += inputs_offset
-
-    while len(stack) > 2:
-        right = stack.pop()
-        sign = stack.pop()
-        left = stack.pop()
-
-        if sign == '+':
-            stack.append([element_types.LOGICAL_OR, left, right, 0, 0])
-
-    process_elems(stack[0])
+    proceed_elems(head, screen_width*0.5, screen_height//2 - elem_height//2, 0)
 
 
-def main():
-    global viewport_scale, viewport_x, viewport_y, left_mouse_pressed
+def main() -> None:
+    global viewport_scale, viewport_x, viewport_y, left_mouse_pressed, equation, screen
     running = True
+
+    equation = input("Equation: ")
+
+    pygame.init()
+    screen = pygame.display.set_mode((screen_width, screen_height))
 
     prev_mouse_pos = pygame.mouse.get_pos()
 
+    elems.append([equation, screen_width//2 - len(equation)*10,
+                 20, screen_width//2 - len(equation)*10, 20])
     parse_equation(equation)
 
     font = pygame.font.SysFont('Roboto', font_size)
@@ -318,26 +369,31 @@ def main():
                 current_mouse_pos = pygame.mouse.get_pos()
                 viewport_x += (current_mouse_pos[0] - prev_mouse_pos[0])
                 viewport_y += (current_mouse_pos[1] - prev_mouse_pos[1])
-                for l_obj in objs:
-                    if type(l_obj) == logical_element:
-                        l_obj.x = l_obj.init_x + viewport_x
-                        l_obj.y = l_obj.init_y + viewport_y
+                for elem in elems:
+                    if isinstance(elem, logical_element):
+                        elem.x = elem.init_x + viewport_x
+                        elem.y = elem.init_y + viewport_y
+                    else:
+                        elem[1] = elem[3] + viewport_x
+                        elem[2] = elem[4] + viewport_y
+                for wire in wires:
+                    wire[0][0] = wire[0][2] + viewport_x
+                    wire[0][1] = wire[0][3] + viewport_y
+                    wire[1][0] = wire[1][2] + viewport_x
+                    wire[1][1] = wire[1][3] + viewport_y
 
         screen.fill(WHITE)
 
-        for l_obj in objs:
-            if type(l_obj) == logical_element:
-                screen.blit(l_obj.obj, (l_obj.x, l_obj.y))
-
+        for elem in elems:
+            if isinstance(elem, logical_element):
+                screen.blit(elem.obj, (elem.x, elem.y))
+            else:
+                font = pygame.font.Font('freesansbold.ttf', 16)
+                text = font.render(elem[0], True, BLACK, WHITE)
+                screen.blit(text, (elem[1], elem[2] + text.get_height()//1.5))
         for wire in wires:
-            dot1 = [wire[0][0] + viewport_x, wire[0][1] + viewport_y]
-            dot2 = [wire[1][0] + viewport_x, wire[1][1] + viewport_y]
-            pygame.draw.line(screen, BLACK, dot1, dot2, 1)
-
-        for logic_input in logic_inputs.keys():
-            input_name = font.render(logic_input, True, BLACK)
-            screen.blit(input_name, (logic_inputs[logic_input][0]-input_name.get_size()[
-                0] + viewport_x, logic_inputs[logic_input][1] + viewport_y))
+            pygame.draw.line(
+                screen, BLACK, (wire[0][0], wire[0][1]), (wire[1][0], wire[1][1]))
 
         prev_mouse_pos = pygame.mouse.get_pos()
 
