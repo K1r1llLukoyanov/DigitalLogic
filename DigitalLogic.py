@@ -1,17 +1,18 @@
 import pygame
+from sys import platform
 
-equation = ""
+expression = ""
 
-screen_width = 2000
-screen_height = 1440
+screen_width = 1000
+screen_height = 1000
 
 WHITE = (255, 255, 255)
 BLACK = (0, 0, 0)
 
 font_size = 26
 elem_width = 30
-padding = 5
 elem_height = 20
+padding = elem_height//4
 
 screen = None
 
@@ -76,13 +77,13 @@ class SignError():
         return self.message
 
 
-def check_brackets(equation: str) -> bool:
-    """ 
+def check_brackets(expression: str) -> bool:
+    """
         Check that all brackets from correct pairs using stack
     """
     stack = []
     count = 0
-    for symbol in equation:
+    for symbol in expression:
         if symbol in ['[', '(', '{']:
             stack.append(symbol)
             count += 1
@@ -97,25 +98,25 @@ def check_brackets(equation: str) -> bool:
     return count == 0
 
 
-def handle_invalid_equation(equation: str, index: int) -> None:
-    print("Error: Invalid equation:")
-    print(equation)
+def handle_invalid_expression(expression: str, message: str, index: int) -> None:
+    print("Error: {}".format(message))
+    print(expression)
     for _ in range(index):
         print(" ", end="")
     print("^")
-    raise SignError()
+    exit(1)
 
 
-def compress_multiplying(equation: list) -> list:
+def compress_multiplying(expression: list) -> list:
     """
         Compress multiplications to the arrays
     """
     compressed = []
     i = 0
-    n = len(equation)
+    n = len(expression)
     prev_multiplying = False
     while i < n:
-        elem = equation[i]
+        elem = expression[i]
         if elem == '*':
             compressed[-1] = [compressed[-1], '*']
             prev_multiplying = True
@@ -141,13 +142,14 @@ def compress_multiplying(equation: list) -> list:
     return compressed
 
 
-def parse_to_array(equation: str, begin, depth: int) -> list:
+def parse_to_array(expression: str, begin, depth: int) -> list:
     """
-        Divide string equation to the array with + as delimiter
+        Divide string expression to the array with + as delimiter
     """
 
+    n = len(expression)
+
     array = []
-    n = len(equation)
     LAST_SYMBOL = None
 
     if (depth != 0):
@@ -159,8 +161,7 @@ def parse_to_array(equation: str, begin, depth: int) -> list:
     to_continue = 0
     i = begin
     while (i < n):
-        symbol = equation[i]
-
+        symbol = expression[i]
         if not symbol.isalnum() and proceed_varible:
             LAST_SYMBOL = SYMBOL_TYPES.VARIABLE
             proceed_varible = False
@@ -168,8 +169,8 @@ def parse_to_array(equation: str, begin, depth: int) -> list:
 
         if symbol in ['(', '{', '[']:
             if i == n-1:
-                handle_invalid_equation(equation, i)
-            parsed, skip = parse_to_array(equation, i+1, depth+1)
+                handle_invalid_expression(expression, i)
+            parsed, skip = parse_to_array(expression, i+1, depth+1)
             LAST_SYMBOL = SYMBOL_TYPES.CLOSE_BRACKET
             array.append(parsed)
             i = skip+1
@@ -182,10 +183,29 @@ def parse_to_array(equation: str, begin, depth: int) -> list:
                 LAST_SYMBOL = SYMBOL_TYPES.CLOSE_BRACKET
         elif symbol in ["+", "-", "*"]:
             if LAST_SYMBOL in [None, SYMBOL_TYPES.ARITHMETIC, SYMBOL_TYPES.NOT, SYMBOL_TYPES.OPEN_BRACKET] or i == n-1:
-                handle_invalid_equation(equation, i)
+                handle_invalid_expression(expression, "Invalid expression:", i)
             else:
                 LAST_SYMBOL = SYMBOL_TYPES.ARITHMETIC
                 array.append(symbol)
+        elif symbol == "~":
+            if i+1 >= n:
+                handle_invalid_expression(expression, "Invalid expression", i)
+            save = i
+            i += 1
+            while i < n and expression[i] == ' ':
+                i += 1
+            if i == n:
+                handle_invalid_expression(
+                    expression, "Invalid expression", save)
+            elif expression[i] != '(':
+                handle_invalid_expression(
+                    expression, "After ~ sign expression should be in brackets", i)
+            wrap = ['~']
+            parsed, to_continue = parse_to_array(expression, i+1, depth+1)
+            wrap.append(parsed)
+            array.append(wrap)
+            LAST_SYMBOL = SYMBOL_TYPES.CLOSE_BRACKET
+            i = to_continue
         elif symbol.isalnum() and proceed_varible == False:
             last_variable = symbol
             proceed_varible = True
@@ -200,35 +220,34 @@ def parse_to_array(equation: str, begin, depth: int) -> list:
     return compress_multiplying(array), to_continue
 
 
-def parse_to_tree(equation: list) -> TreeNode:
+def parse_to_tree(expression: list) -> TreeNode:
     """
         Form balanced binary tree from array
     """
-    n = len(equation)
+    n = len(expression)
 
     if n == 0:
         return None
 
-    if n % 2 == 0:
-        print(equation)
-        raise RuntimeError("Error: array is invalid for tree parsing")
+    if n == 2 and expression[0] == '~':
+        return TreeNode('~', parse_to_tree(expression[1]))
 
-    if n == 1 and isinstance(equation[0], list):
-        return parse_to_tree(equation[0])
-    elif n == 1 and isinstance(equation[0], str):
-        return TreeNode(equation[0])
+    if n == 1 and isinstance(expression[0], list):
+        return parse_to_tree(expression[0])
+    elif n == 1 and isinstance(expression[0], str):
+        return TreeNode(expression[0])
 
     mid = (n-1)//2
 
-    if '+' in equation:
-        if equation[mid] == '+':
-            return TreeNode('+', parse_to_tree(equation[:mid]), parse_to_tree(equation[mid+1:]))
-        elif equation[mid-1] == '+':
-            return TreeNode('+', parse_to_tree(equation[:mid-1]), parse_to_tree(equation[mid:]))
-    if equation[mid] == '*':
-        return TreeNode('*', parse_to_tree(equation[:mid]), parse_to_tree(equation[mid+1:]))
-    elif equation[mid-1] == '*':
-        return TreeNode('*', parse_to_tree(equation[:mid-2]), parse_to_tree(equation[mid:]))
+    if '+' in expression:
+        if expression[mid] == '+':
+            return TreeNode('+', parse_to_tree(expression[:mid]), parse_to_tree(expression[mid+1:]))
+        elif expression[mid-1] == '+':
+            return TreeNode('+', parse_to_tree(expression[:mid-1]), parse_to_tree(expression[mid:]))
+    if expression[mid] == '*':
+        return TreeNode('*', parse_to_tree(expression[:mid]), parse_to_tree(expression[mid+1:]))
+    elif expression[mid-1] == '*':
+        return TreeNode('*', parse_to_tree(expression[:mid-2]), parse_to_tree(expression[mid:]))
 
     return None
 
@@ -255,7 +274,7 @@ def get_right_size(node: TreeNode) -> int:
     return 1 + get_left_size(node.right.left) + get_right_size(node.right)
 
 
-def wiring(left_x, left_y, current_x, current_y, node):
+def wiring(left_x, left_y, current_x, current_y, node) -> None:
     """
         Adding wires between elements
         All wires consists of three parts and two kinks
@@ -303,6 +322,9 @@ def proceed_elems(head: TreeNode, current_x: int, current_y: int, depth) -> None
     elif head.data == '*':
         elems.append(logical_element(
             current_x, current_y, element_types.LOGICAL_AND))
+    elif head.data == '~':
+        elems.append(logical_element(
+            current_x, current_y, element_types.LOGICAL_NOT))
     else:
         elems.append([head.data, current_x, current_y, current_x, current_y])
         return
@@ -315,44 +337,76 @@ def proceed_elems(head: TreeNode, current_x: int, current_y: int, depth) -> None
     left_y = current_y - (right_size - 0.5)*(y_offset + elem_height)
     right_y = current_y + (left_size - 0.5)*(y_offset + elem_height)
 
+    if head.data == '~':
+        left_y = current_y
+        proceed_elems(head.left, left_x, left_y, depth+1)
+        wires.append([[left_x + elem_width, left_y+elem_height//2, left_x + elem_width, left_y + elem_height//2],
+                     [current_x, current_y + elem_height//2,
+                         current_x, current_y + elem_height//2]
+                      ])
+        return
+
     proceed_elems(head.left, left_x,
                   left_y, depth+1)
-
     wiring(left_x, left_y, current_x, current_y, head.left)
-
     proceed_elems(head.right, right_x,
                   right_y, depth+1)
-
     wiring(right_x, right_y, current_x, current_y, head.right)
 
 
-def parse_equation(equation) -> None:
+def parse_expression(expression) -> None:
     """
-        Parsing string equation to array and then to balanced binary tree
+        Parsing string expression to array and then to balanced binary tree
     """
-    if not check_brackets(equation):
+    if not check_brackets(expression):
         print('Brackets error')
         quit(1)
 
-    array, to_continue = parse_to_array(equation, 0, 0)
+    array, to_continue = parse_to_array(expression, 0, 0)
+    print(array)
     head = parse_to_tree(array)
 
     proceed_elems(head, screen_width*0.5, screen_height//2 - elem_height//2, 0)
 
 
 def main() -> None:
-    global viewport_scale, viewport_x, viewport_y, left_mouse_pressed, equation, screen
+    global viewport_scale, viewport_x, viewport_y, left_mouse_pressed, expression, screen, screen_height, screen_width
     running = True
 
-    equation = input("Equation: ")
+    expression = input("expression: ")
+
+    if platform == "linux" or platform == "linux2":
+        import subprocess
+        cmd = ['xrandr']
+        cmd2 = ['grep', '*']
+        p = subprocess.Popen(cmd, stdout=subprocess.PIPE)
+        p2 = subprocess.Popen(cmd2, stdin=p.stdout, stdout=subprocess.PIPE)
+        p.stdout.close()
+        resolution_string, junk = p2.communicate()
+        resolution = resolution_string.split()[0]
+        screen_width, screen_height = resolution.split('x')
+        screen_width -= 50
+        screen_height -= 50
+
+    elif platform == "darwin":
+        from AppKit import NSScreen
+        NSScreen.mainScreen().frame().size.width
+        NSScreen.mainScreen().frame().size.heightpass
+    elif platform == "win32":
+        import ctypes
+        user32 = ctypes.windll.user32
+        user32.SetProcessDPIAware()
+        screen_width, screen_height = user32.GetSystemMetrics(
+            0) - 50, user32.GetSystemMetrics(1) - 50
 
     pygame.init()
     screen = pygame.display.set_mode((screen_width, screen_height))
 
     prev_mouse_pos = pygame.mouse.get_pos()
 
-    elems.append([equation, screen_width*0.5 + 40, screen_height//2 - 17, screen_width*0.5 + 40, screen_height//2 - 17])
-    parse_equation(equation)
+    elems.append([expression, screen_width*0.5 + 40, screen_height //
+                 2 - 10, screen_width*0.5 + 40, screen_height//2 - 10])
+    parse_expression(expression)
 
     font = pygame.font.SysFont('Roboto', font_size)
 
@@ -389,7 +443,7 @@ def main() -> None:
             else:
                 font = pygame.font.Font('freesansbold.ttf', 16)
                 text = font.render(elem[0], True, BLACK, WHITE)
-                screen.blit(text, (elem[1], elem[2] + text.get_height()//1.5))
+                screen.blit(text, (elem[1], elem[2]))
         for wire in wires:
             pygame.draw.line(
                 screen, BLACK, (wire[0][0], wire[0][1]), (wire[1][0], wire[1][1]))
