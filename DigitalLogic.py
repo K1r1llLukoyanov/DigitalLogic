@@ -388,10 +388,6 @@ def main() -> None:
         screen_width -= 50
         screen_height -= 50
 
-    elif platform == "darwin":
-        from AppKit import NSScreen
-        NSScreen.mainScreen().frame().size.width
-        NSScreen.mainScreen().frame().size.heightpass
     elif platform == "win32":
         import ctypes
         user32 = ctypes.windll.user32
