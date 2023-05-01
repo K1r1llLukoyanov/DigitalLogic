@@ -3,15 +3,15 @@ import pygame
 equation = ""
 
 screen_width = 2000
-screen_height = 1000
+screen_height = 1440
 
 WHITE = (255, 255, 255)
 BLACK = (0, 0, 0)
 
 font_size = 26
-elem_width = 80
-padding = 10
-elem_height = 40
+elem_width = 30
+padding = 5
+elem_height = 20
 
 screen = None
 
@@ -26,8 +26,8 @@ left_elems_y = screen_height//2 - elem_height//2 + padding
 elems = []
 wires = []
 
-x_offset = 60 + elem_width
-y_offset = 20
+x_offset = 70 + elem_width
+y_offset = 30
 
 
 class element_types(enumerate):
@@ -233,22 +233,26 @@ def parse_to_tree(equation: list) -> TreeNode:
     return None
 
 
-def get_left_size(node: TreeNode, depth=1) -> int:
+def get_left_size(node: TreeNode) -> int:
     """
         To get max depth to left from the current element
     """
     if node == None:
         return 0
-    return depth + get_left_size(node.left, depth)
+    if isinstance(node.data, str) and node.data != '+' and node.data != '*':
+        return 1
+    return 1 + get_right_size(node.left.right) + get_left_size(node.left)
 
 
-def get_right_size(node: TreeNode, depth=1) -> int:
+def get_right_size(node: TreeNode) -> int:
     """
         To get max depth to right from the current element
     """
     if node == None:
         return 0
-    return depth + get_right_size(node.right, depth)
+    if isinstance(node.data, str) and node.data != '+' and node.data != '*':
+        return 1
+    return 1 + get_left_size(node.right.left) + get_right_size(node.right)
 
 
 def wiring(left_x, left_y, current_x, current_y, node):
@@ -308,8 +312,8 @@ def proceed_elems(head: TreeNode, current_x: int, current_y: int, depth) -> None
 
     left_x = current_x - x_offset
     right_x = current_x - x_offset
-    left_y = current_y - right_size*(y_offset + elem_height)
-    right_y = current_y + left_size*(y_offset + elem_height)
+    left_y = current_y - (right_size - 0.5)*(y_offset + elem_height)
+    right_y = current_y + (left_size - 0.5)*(y_offset + elem_height)
 
     proceed_elems(head.left, left_x,
                   left_y, depth+1)
@@ -347,8 +351,7 @@ def main() -> None:
 
     prev_mouse_pos = pygame.mouse.get_pos()
 
-    elems.append([equation, screen_width//2 - len(equation)*10,
-                 20, screen_width//2 - len(equation)*10, 20])
+    elems.append([equation, screen_width*0.5 + 40, screen_height//2 - 17, screen_width*0.5 + 40, screen_height//2 - 17])
     parse_equation(equation)
 
     font = pygame.font.SysFont('Roboto', font_size)
