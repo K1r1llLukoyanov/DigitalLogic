@@ -1,4 +1,5 @@
 # DigitalLogic
 Transfer your logical equation into digital scheme (only add and multiply operations allowed)
 
-![изображение](https://user-images.githubusercontent.com/112931242/235295726-fd40ec9b-34dc-4ed9-8d0b-59010b3de6e3.png)
+![изображение](https://user-images.githubusercontent.com/112931242/235432806-8eafd2ce-8a6e-4027-927c-fc0284506703.png)
+
