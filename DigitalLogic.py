@@ -547,8 +547,6 @@ def main() -> None:
 
         pygame.display.flip()
 
-        time.sleep(160)
-
 
 if __name__ == "__main__":
     main()
