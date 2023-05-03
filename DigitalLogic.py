@@ -1,4 +1,5 @@
 import pygame
+import time
 from sys import platform
 
 expression = ""
@@ -9,12 +10,13 @@ screen_height = 1000
 WHITE = (255, 255, 255)
 BLACK = (0, 0, 0)
 
-font_size = 26
-elem_width = 30
-elem_height = 20
+elem_width = 80
+elem_height = 60
 padding = elem_height//4
 
 screen = None
+
+zoom_scale = 1
 
 viewport_x = 0
 viewport_y = 0
@@ -35,6 +37,7 @@ class element_types(enumerate):
     LOGICAL_AND = 1
     LOGICAL_OR = 2
     LOGICAL_NOT = 3
+    LOGICAL_XOR = 4
 
 
 class SYMBOL_TYPES(enumerate):
@@ -51,15 +54,17 @@ class logical_element():
         self.x = x
         self.init_y = y
         self.y = y
-        path_to_file = ""
+        self.path_to_file = ""
         if type == element_types.LOGICAL_AND:
-            path_to_file = './and.svg'
+            self.path_to_file = './and.svg'
         elif type == element_types.LOGICAL_OR:
-            path_to_file = './or.svg'
+            self.path_to_file = './or.svg'
         elif type == element_types.LOGICAL_NOT:
-            path_to_file = './not.svg'
+            self.path_to_file = './not.svg'
+        elif type == element_types.LOGICAL_XOR:
+            self.path_to_file = './xor.svg'
         self.obj = pygame.transform.scale(
-            pygame.image.load(path_to_file), (elem_width, elem_height))
+            pygame.image.load(self.path_to_file), (elem_width, elem_height))
 
 
 class TreeNode(object):
@@ -107,31 +112,31 @@ def handle_invalid_expression(expression: str, message: str, index: int) -> None
     exit(1)
 
 
-def compress_multiplying(expression: list) -> list:
+def compress(expression: list) -> list:
     """
         Compress multiplications to the arrays
     """
     compressed = []
     i = 0
     n = len(expression)
-    prev_multiplying = False
+    prev_compressed = False
     while i < n:
         elem = expression[i]
-        if elem == '*':
-            compressed[-1] = [compressed[-1], '*']
-            prev_multiplying = True
-        elif elem == '+':
-            prev_multiplying = False
-            compressed.append('+')
+        if elem in ['*', '^', '&']:
+            compressed[-1] = [compressed[-1], elem]
+            prev_compressed = True
+        elif elem in ['|', '+']:
+            prev_compressed = False
+            compressed.append(elem)
         elif isinstance(elem, list):
-            if prev_multiplying:
+            if prev_compressed:
                 unit = compressed[-1]
                 unit.append(elem)
                 compressed[-1] = unit
             else:
                 compressed.append(elem)
         elif isinstance(elem, str):
-            if prev_multiplying:
+            if prev_compressed:
                 unit = compressed[-1]
                 unit.append(elem)
                 compressed[-1] = unit
@@ -166,7 +171,6 @@ def parse_to_array(expression: str, begin, depth: int) -> list:
             LAST_SYMBOL = SYMBOL_TYPES.VARIABLE
             proceed_varible = False
             array.append(last_variable)
-
         if symbol in ['(', '{', '[']:
             if i == n-1:
                 handle_invalid_expression(expression, i)
@@ -181,7 +185,7 @@ def parse_to_array(expression: str, begin, depth: int) -> list:
                 break
             else:
                 LAST_SYMBOL = SYMBOL_TYPES.CLOSE_BRACKET
-        elif symbol in ["+", "-", "*"]:
+        elif symbol in ["+", "-", "*", "^", '|', '&']:
             if LAST_SYMBOL in [None, SYMBOL_TYPES.ARITHMETIC, SYMBOL_TYPES.NOT, SYMBOL_TYPES.OPEN_BRACKET] or i == n-1:
                 handle_invalid_expression(expression, "Invalid expression:", i)
             else:
@@ -217,7 +221,7 @@ def parse_to_array(expression: str, begin, depth: int) -> list:
     if proceed_varible:
         array.append(last_variable)
 
-    return compress_multiplying(array), to_continue
+    return compress(array), to_continue
 
 
 def parse_to_tree(expression: list) -> TreeNode:
@@ -239,17 +243,52 @@ def parse_to_tree(expression: list) -> TreeNode:
 
     mid = (n-1)//2
 
-    if '+' in expression:
-        if expression[mid] == '+':
-            return TreeNode('+', parse_to_tree(expression[:mid]), parse_to_tree(expression[mid+1:]))
-        elif expression[mid-1] == '+':
-            return TreeNode('+', parse_to_tree(expression[:mid-1]), parse_to_tree(expression[mid:]))
-    if expression[mid] == '*':
-        return TreeNode('*', parse_to_tree(expression[:mid]), parse_to_tree(expression[mid+1:]))
-    elif expression[mid-1] == '*':
-        return TreeNode('*', parse_to_tree(expression[:mid-2]), parse_to_tree(expression[mid:]))
+    if '+' in expression or '|' in expression:
+        if expression[mid] in ['+', '|']:
+            return TreeNode(expression[mid], parse_to_tree(expression[:mid]), parse_to_tree(expression[mid+1:]))
+        elif expression[mid-1] in ['+', '|']:
+            return TreeNode(expression[mid-1], parse_to_tree(expression[:mid-1]), parse_to_tree(expression[mid:]))
+    if expression[mid] in ['*', '^', '&']:
+        return TreeNode(expression[mid], parse_to_tree(expression[:mid]), parse_to_tree(expression[mid+1:]))
+    elif expression[mid-1] in ['*', '^', '&']:
+        return TreeNode(expression[mid-1], parse_to_tree(expression[:mid-2]), parse_to_tree(expression[mid:]))
 
     return None
+
+
+def proceed_numerical(expression: list) -> int:
+    n = len(expression)
+
+    if n == 0:
+        return 0
+
+    if n == 2 and expression[0] == '~':
+        return -proceed_numerical(expression[1])
+
+    if n == 1 and isinstance(expression[0], list):
+        return proceed_numerical(expression[0])
+    elif n == 1 and isinstance(expression[0], str):
+        return int(expression[0])
+
+    mid = (n-1)//2
+
+    if '+' in expression or '|' in expression:
+        if expression[mid] == '+':
+            return proceed_numerical(expression[:mid]) + proceed_numerical(expression[mid+1:])
+        elif expression[mid] == '|':
+            return proceed_numerical(expression[:mid]) | proceed_numerical(expression[mid+1:])
+        elif expression[mid-1] == '+':
+            return proceed_numerical(expression[:mid-1]) + proceed_numerical(expression[mid:])
+        elif expression[mid-1] == '|':
+            return proceed_numerical(expression[:mid-1]) | proceed_numerical(expression[mid:])
+    if expression[mid] in ['*', '&']:
+        return proceed_numerical(expression[:mid]) * proceed_numerical(expression[mid+1:])
+    elif expression[mid] == '^':
+        return proceed_numerical(expression[:mid]) ^ proceed_numerical(expression[mid+1:])
+    elif expression[mid-1] in ['*', '&']:
+        return proceed_numerical(expression[:mid-2]) * proceed_numerical(expression[mid:])
+    elif expression[mid-1] == '^':
+        return proceed_numerical(expression[:mid-2]) ^ proceed_numerical(expression[mid:])
 
 
 def get_left_size(node: TreeNode) -> int:
@@ -258,7 +297,7 @@ def get_left_size(node: TreeNode) -> int:
     """
     if node == None:
         return 0
-    if isinstance(node.data, str) and node.data != '+' and node.data != '*':
+    if isinstance(node.data, str) and node.data not in ['*', '+', '|', '&']:
         return 1
     return 1 + get_right_size(node.left.right) + get_left_size(node.left)
 
@@ -269,7 +308,7 @@ def get_right_size(node: TreeNode) -> int:
     """
     if node == None:
         return 0
-    if isinstance(node.data, str) and node.data != '+' and node.data != '*':
+    if isinstance(node.data, str) and node.data not in ['*', '+', '|', '&']:
         return 1
     return 1 + get_left_size(node.right.left) + get_right_size(node.right)
 
@@ -316,15 +355,20 @@ def proceed_elems(head: TreeNode, current_x: int, current_y: int, depth) -> None
     if (head == None or head.data == None):
         return
 
-    if head.data == '+':
+    data = head.data
+
+    if data in ['+', '|']:
         elems.append(logical_element(
             current_x, current_y, element_types.LOGICAL_OR))
-    elif head.data == '*':
+    elif data in ['*', '^', '&']:
         elems.append(logical_element(
             current_x, current_y, element_types.LOGICAL_AND))
-    elif head.data == '~':
+    elif data == '~':
         elems.append(logical_element(
             current_x, current_y, element_types.LOGICAL_NOT))
+    elif data == '^':
+        elems.append(logical_element(
+            current_x, current_y, element_types.LOGICAL_XOR))
     else:
         elems.append([head.data, current_x, current_y, current_x, current_y])
         return
@@ -354,6 +398,14 @@ def proceed_elems(head: TreeNode, current_x: int, current_y: int, depth) -> None
     wiring(right_x, right_y, current_x, current_y, head.right)
 
 
+def print_inorder(node: TreeNode):
+    if node == None:
+        return
+    print_inorder(node.left)
+    print(node.data)
+    print_inorder(node.right)
+
+
 def parse_expression(expression) -> None:
     """
         Parsing string expression to array and then to balanced binary tree
@@ -366,12 +418,15 @@ def parse_expression(expression) -> None:
     print(array)
     head = parse_to_tree(array)
 
+    print_inorder(head)
     proceed_elems(head, screen_width*0.5, screen_height//2 - elem_height//2, 0)
 
 
 def main() -> None:
-    global viewport_scale, viewport_x, viewport_y, left_mouse_pressed, expression, screen, screen_height, screen_width
+    global viewport_scale, viewport_x, viewport_y, left_mouse_pressed, expression, screen, screen_height, screen_width, zoom_scale
     running = True
+
+    font_size = 20
 
     expression = input("expression: ")
 
@@ -388,10 +443,6 @@ def main() -> None:
         screen_width -= 50
         screen_height -= 50
 
-    elif platform == "darwin":
-        from AppKit import NSScreen
-        NSScreen.mainScreen().frame().size.width
-        NSScreen.mainScreen().frame().size.heightpass
     elif platform == "win32":
         import ctypes
         user32 = ctypes.windll.user32
@@ -399,29 +450,57 @@ def main() -> None:
         screen_width, screen_height = user32.GetSystemMetrics(
             0) - 50, user32.GetSystemMetrics(1) - 50
 
+    parse_expression(expression)
+
     pygame.init()
     screen = pygame.display.set_mode((screen_width, screen_height))
 
     prev_mouse_pos = pygame.mouse.get_pos()
 
-    elems.append([expression, screen_width*0.5 + 40, screen_height //
-                 2 - 10, screen_width*0.5 + 40, screen_height//2 - 10])
-    parse_expression(expression)
+    elems.append([expression, screen_width*0.5 + 10 + elem_width, screen_height //
+                 2 - 25, screen_width*0.5 + 10 + elem_width, screen_height//2 - 25])
 
-    font = pygame.font.SysFont('Roboto', font_size)
+    line_width = 1
 
     while running:
+        font = pygame.font.SysFont('Roboto', font_size)
+
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 running = False
+
             if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
                 left_mouse_pressed = True
+
             elif event.type == pygame.MOUSEBUTTONUP and event.button == 1:
                 left_mouse_pressed = False
+
+            elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 4:
+                current_mouse_pos = pygame.mouse.get_pos()
+
+                if zoom_scale*2 <= 16:
+                    viewport_x -= current_mouse_pos[0]*zoom_scale
+                    viewport_y -= current_mouse_pos[1]*zoom_scale
+                    zoom_scale = zoom_scale*2
+                    font_size = font_size*2
+
+            elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 5:
+                current_mouse_pos = pygame.mouse.get_pos()
+
+                if zoom_scale//2 >= 1:
+                    viewport_x += current_mouse_pos[0]*zoom_scale//2
+                    viewport_y += current_mouse_pos[1]*zoom_scale//2
+                    zoom_scale = zoom_scale//2
+                    font_size = font_size//2
+
             elif event.type == pygame.MOUSEMOTION and left_mouse_pressed:
                 current_mouse_pos = pygame.mouse.get_pos()
-                viewport_x += (current_mouse_pos[0] - prev_mouse_pos[0])
-                viewport_y += (current_mouse_pos[1] - prev_mouse_pos[1])
+
+                viewport_x += (current_mouse_pos[0] -
+                               prev_mouse_pos[0])*zoom_scale
+                viewport_y += (current_mouse_pos[1] -
+                               prev_mouse_pos[1])*zoom_scale
+
                 for elem in elems:
                     if isinstance(elem, logical_element):
                         elem.x = elem.init_x + viewport_x
@@ -430,10 +509,26 @@ def main() -> None:
                         elem[1] = elem[3] + viewport_x
                         elem[2] = elem[4] + viewport_y
                 for wire in wires:
-                    wire[0][0] = wire[0][2] + viewport_x
-                    wire[0][1] = wire[0][3] + viewport_y
-                    wire[1][0] = wire[1][2] + viewport_x
-                    wire[1][1] = wire[1][3] + viewport_y
+                    wire[0][0] = wire[0][2]*zoom_scale + viewport_x
+                    wire[0][1] = wire[0][3]*zoom_scale + viewport_y
+                    wire[1][0] = wire[1][2]*zoom_scale + viewport_x
+                    wire[1][1] = wire[1][3]*zoom_scale + viewport_y
+
+        for elem in elems:
+            if isinstance(elem, logical_element):
+                elem.obj = pygame.transform.scale(
+                    pygame.image.load(elem.path_to_file), (elem_width*zoom_scale, elem_height*zoom_scale))
+                elem.x = elem.init_x * zoom_scale + viewport_x
+                elem.y = elem.init_y * zoom_scale + viewport_y
+            else:
+                elem[1] = elem[3]*zoom_scale + viewport_x
+                elem[2] = elem[4]*zoom_scale + viewport_y
+
+        for wire in wires:
+            wire[0][0] = wire[0][2]*zoom_scale + viewport_x
+            wire[0][1] = wire[0][3]*zoom_scale + viewport_y
+            wire[1][0] = wire[1][2]*zoom_scale + viewport_x
+            wire[1][1] = wire[1][3]*zoom_scale + viewport_y
 
         screen.fill(WHITE)
 
@@ -441,16 +536,18 @@ def main() -> None:
             if isinstance(elem, logical_element):
                 screen.blit(elem.obj, (elem.x, elem.y))
             else:
-                font = pygame.font.Font('freesansbold.ttf', 16)
+                font = pygame.font.Font('freesansbold.ttf', font_size)
                 text = font.render(elem[0], True, BLACK, WHITE)
-                screen.blit(text, (elem[1], elem[2]))
+                screen.blit(text, (elem[1], elem[2] + 20))
         for wire in wires:
             pygame.draw.line(
-                screen, BLACK, (wire[0][0], wire[0][1]), (wire[1][0], wire[1][1]))
+                screen, BLACK, (wire[0][0], wire[0][1]), (wire[1][0], wire[1][1]), line_width*zoom_scale)
 
         prev_mouse_pos = pygame.mouse.get_pos()
 
         pygame.display.flip()
+
+        time.sleep(160)
 
 
 if __name__ == "__main__":
